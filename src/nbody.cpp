@@ -13,6 +13,9 @@
 
 #include "resources.inl"
 
+#define __BRUTE_FORCE__
+#define __DEBUG_OCTREE__
+
 glm::vec2 ScreenSize = {1024.0f, 768.0f};
 
 const int totalPoints = 10000;
@@ -257,7 +260,6 @@ void onIdle()
   for (int i = 0; i < totalPoints; ++i) 
   {
 
-#define __BRUTE_FORCE__
 #ifdef __BRUTE_FORCE__
 
     for (int j = i+1; j < totalPoints; ++j) 
