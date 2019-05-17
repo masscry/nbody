@@ -62,11 +62,12 @@ GLuint LoadShader(GLenum shaderType, const char* shaderText) {
 
   glGetShaderiv(result, GL_COMPILE_STATUS, &compileResult);
   glGetShaderiv(result, GL_INFO_LOG_LENGTH, &compileInfoLen);
-  if ( compileInfoLen > 0 ){
-    char* text = new char[compileInfoLen+1];
+  if ( compileInfoLen > 1 ){
+	compileInfoLen += 1;
+    char* text = new char[compileInfoLen];
     glGetShaderInfoLog(result, compileInfoLen, NULL, text);
-    printf("Compilation: %s\n", text);
-    free(text);
+    printf("Compilation[%s]: %s\n", ((compileResult==GL_TRUE)?"OK":"FAILED"), text);
+    delete[] text;
   }
   return result;
 }
@@ -85,11 +86,12 @@ GLuint CreateProgram(const char* vshader, const char* fshader) {
 
   glGetProgramiv(result, GL_LINK_STATUS, &linkResult);
   glGetProgramiv(result, GL_INFO_LOG_LENGTH, &linkInfoLen);
-  if ( linkInfoLen > 0 ){
-    char* text = new char[linkInfoLen+1];
+  if ( linkInfoLen > 1 ){
+	linkInfoLen += 1;
+    char* text = new char[linkInfoLen];
     glGetProgramInfoLog(result, linkInfoLen, NULL, text);
-    printf("Link: %s\n", text);
-    free(text);
+    printf("Link[%s]: %s\n", ((linkResult == GL_TRUE) ? "OK" : "FAILED"), text);
+    delete[] text;
   }
   
   glDeleteShader(VertexShader);
