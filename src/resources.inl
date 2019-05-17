@@ -9,13 +9,14 @@ static const char fp_vprog[] =
   "uniform mat4 mat_ModelView;\n"
   "uniform vec2 screenSize;\n"
   "uniform float spriteSize;\n"
+  "uniform float maxVelocity;\n"
   "void main() {\n"
   "  vec4 eyePos = mat_ModelView * vec4(vertexPosition_modelspace, 1.0);\n"
   "  vec4 projVoxel = mat_Projection * vec4(spriteSize,spriteSize,eyePos.z,eyePos.w);\n"
   "  vec2 projSize = screenSize * projVoxel.xy / projVoxel.w;\n"
   "  gl_PointSize = 0.25 * (projSize.x + projSize.y);\n"
   "  gl_Position = mat_Projection * eyePos;\n"
-  "  vel = abs(normalize(vertexVelocity_modelspace)-vec3(0.5));\n"
+  "  vel = abs(vertexVelocity_modelspace/maxVelocity-vec3(0.5));\n"
   "}\n";
 
 static const char fp_fprog[] = 
@@ -27,7 +28,28 @@ static const char fp_fprog[] =
   "void main(){\n"
   "  vec2 dvec = gl_PointCoord - vec2(0.5,0.5);\n"
   "  float sqdist = max(0.0, 0.25 - dot(dvec, dvec))*4.0;\n"
-  "  color = vec4(sqdist)*vec4(vel, 0.8);\n"
+  "  color = vec4(sqdist)*vec4(vel*2.0 - 0.2, 0.8);\n"
+  "}\n";
+
+static const char sp_vprog[] = 
+  "#version 330 core\n"
+  "\n"
+  "layout(location = 0) in vec3 vertexPosition_modelspace;\n"
+  "\n"
+  "uniform mat4 mat_Projection;\n"
+  "uniform mat4 mat_ModelView;\n"
+  "\n"
+  "void main() {\n"
+  "  gl_Position = mat_Projection * mat_ModelView * vec4(vertexPosition_modelspace, 1.0);\n"
+  "}\n";
+
+static const char sp_fprog[] = 
+  "#version 330 core\n"
+  "\n"
+  "layout(location = 0) out vec4 color;\n"
+  "\n"
+  "void main(){\n"
+  "  color = vec4(0.2);\n"
   "}\n";
 
 GLuint LoadShader(GLenum shaderType, const char* shaderText) {
