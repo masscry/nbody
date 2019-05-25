@@ -4,7 +4,6 @@
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 
-#define GLM_FORCE_MESSAGES GLM_ENABLE
 #define GLM_FORCE_INLINE GLM_ENABLE
 //#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES GLM_ENABLE
 #define GLM_FORCE_INTRINSICS GLM_ENABLE
@@ -16,7 +15,10 @@
 #include <random>
 #include <time.h>
 #include <string.h>
+
+#ifndef __USE_CUDA__
 #include <omp.h>
+#endif 
 
 #include <octree.hpp>
 
@@ -24,16 +26,27 @@
 
 #include "resources.inl"
 
+#include <nbody.h>
+#include <fb_t.hpp>
+#include <vao_t.hpp>
+
 //#define __BRUTE_FORCE__
+//#define __USE_CUDA__
 //#define __DEBUG_OCTREE__
-//#define __WND_MODE__
+#define __WND_MODE__
 
 glm::vec2 ScreenSize = { 1024.0f, 768.0f };
 
-const int totalPoints = 100000;
+const int totalPoints = 1024*64;
+
+const float maxRadius = 200.0f;
+const float fadeOut = 0.98f;
+
+const float nearPlane = 10.0f;
+const float farPlane = 10000.0f;
 
 float WorldAngle = 0.0f;
-float WorldDistance = 300.0f;
+float WorldDistance = 500.0f;
 
 float maxStarVelocity = 0.0f;
 
@@ -51,20 +64,33 @@ GLuint SPModelViewUniform;
 GLuint SPProjectionUniform;
 #endif /* __DEBUG_OCTREE__ */
 
-GLuint VAO;
-GLuint VBO;
-GLuint VelBO;
+fb_t screen;
+fb_t fpass;
+fb_t spass;
+
+vao_t VAO;
+vbo_t VBO;
+vbo_t VelBO;
+
 GLuint FirstPassProgram;
 
 GLuint ModelViewUniform;
 GLuint ProjectionUniform;
 GLuint screenSizeUniform;
 GLuint spriteSizeUniform;
-GLuint FinalTextureUniform;
 GLuint maxVelocityUniform;
 
 glm::mat4 Projection;
 glm::mat4 ModelView;
+
+GLuint QuadPassProgram;
+
+vao_t QuadVAO;
+vbo_t QuadVBO;
+vbo_t QuadTexBO;
+
+GLuint TempTextureUniform;
+GLuint AlphaUniform;
 
 octree_t<glm::vec3*>* UpdateOctree() {
 	aabb_t globalAABB;
@@ -115,11 +141,13 @@ void Initialize()
 {
 	std::random_device rd;
 	std::default_random_engine gen(rd());
-	std::uniform_real_distribution<float> dis(0.0f, 10.0f);
+	std::uniform_real_distribution<float> dis(0.0f, maxRadius);
 	std::uniform_real_distribution<float> ang(0.0f, 2.0f * ((float)M_PI));
 	std::uniform_real_distribution<float> theta(0.0f, (float)M_PI);
 
 	for (int i = 0; i < totalPoints; ++i) {
+//#define GALAXY_DISC
+#ifndef GALAXY_DISC
 		float r = dis(gen);
 		float t = theta(gen);
 		float p = ang(gen);
@@ -128,13 +156,14 @@ void Initialize()
 		gPoints[i].y = r * std::sin(t)*std::sin(p);
 		gPoints[i].z = r * std::cos(t);
 
-		r = dis(gen)/15.0f;
-		t = theta(gen);
-		p = ang(gen);
+		r = dis(gen)/5000.0f;
+		t += theta(gen)/10.0f;
+		p += ang(gen)/10.0f;
 
 		gVel[i].x = r * std::sin(t)*std::cos(p);
 		gVel[i].y = r * std::sin(t)*std::sin(p);
 		gVel[i].z = r * std::cos(t);
+#endif
 
 #ifdef GALAXY_DISC
 #define GALAXY_SPREAD
@@ -160,7 +189,7 @@ void Initialize()
 		gVel[i].x = -gPoints[i].z;
 		gVel[i].y = dis(gen) / 100.0f;
 		gVel[i].z = gPoints[i].x;
-		gVel[i] = glm::normalize(gVel[i])/9.0f;
+		gVel[i] = glm::normalize(gVel[i])*pow(maxRadius-len, 2.0f)/600000.0f;
 #endif /* ZERO_SPEED */
 #endif /* GALAXY_DISC */
 	}
@@ -177,26 +206,39 @@ void Initialize()
 
 #endif /* __DEBUG_OCTREE__ */
 
+#ifndef __BRUTE_FORCE__
 	auto* octree = UpdateOctree();
 	gBarycenter = octree->Root().Barycenter();
 	delete octree;
+#else
 
-	glGenVertexArrays(1, &VAO);
-	glBindVertexArray(VAO);
+#ifdef __USE_CUDA__
 
-	glGenBuffers(1, &VBO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(gPoints), gPoints, GL_STREAM_DRAW);
+	simInitialize(totalPoints, gPoints, gVel);
 
-	glGenBuffers(1, &VelBO);
-	glBindBuffer(GL_ARRAY_BUFFER, VelBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(gVel), gVel, GL_STREAM_DRAW);
+#endif /* __USE_CUDA__ */
+
+#endif /* __BRUTE_FORCE__ */
+
+
+	VAO = VAOCreate();
+	VAO.Bind();
+
+	VBO = VBOCreate(gPoints, sizeof(gPoints), GL_STREAM_DRAW);
+	VelBO = VBOCreate(gVel, sizeof(gVel), GL_STREAM_DRAW);
+
+	QuadVAO = VAOCreate();
+	QuadVAO.Bind();
+
+	QuadVBO = VBOCreate(v_quad, sizeof(v_quad), GL_STATIC_DRAW);
+	QuadTexBO = VBOCreate(t_quad, sizeof(t_quad), GL_STATIC_DRAW);
 
 	FirstPassProgram = CreateProgram(fp_vprog, fp_fprog);
+	QuadPassProgram = CreateProgram(quad_vprog, quad_fprog);
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
-	Projection = glm::perspective(glm::radians(90.0f), 4.0f / 3.0f, 1.0f, 10000.0f);
+	Projection = glm::perspective(glm::radians(90.0f), 4.0f / 3.0f, nearPlane, farPlane);
 	ModelView = glm::lookAt(
 		gBarycenter + glm::vec3(WorldDistance),
 		gBarycenter,
@@ -214,10 +256,16 @@ void Initialize()
 	spriteSizeUniform = glGetUniformLocation(FirstPassProgram, "spriteSize");
 	maxVelocityUniform = glGetUniformLocation(FirstPassProgram, "maxVelocity");
 
+	TempTextureUniform = glGetUniformLocation(QuadPassProgram, "star_map");
+	AlphaUniform = glGetUniformLocation(QuadPassProgram, "alpha");
+
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glBlendEquation(GL_MAX);
 	glEnable(GL_PROGRAM_POINT_SIZE);
 
+	fpass = fb_t(ScreenSize);
+	spass = fb_t(ScreenSize);
 }
 
 void FirstPass()
@@ -227,23 +275,28 @@ void FirstPass()
 	glUniformMatrix4fv(ModelViewUniform, 1, GL_FALSE, &ModelView[0][0]);
 	glUniformMatrix4fv(ProjectionUniform, 1, GL_FALSE, &Projection[0][0]);
 	glUniform2fv(screenSizeUniform, 1, &ScreenSize[0]);
-	glUniform1f(spriteSizeUniform, 2.0f);
+	glUniform1f(spriteSizeUniform, 1.0f);
 	glUniform1f(maxVelocityUniform, maxStarVelocity);
 
-	glBindVertexArray(VAO);
-
-	glEnableVertexAttribArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-	glEnableVertexAttribArray(1);
-	glBindBuffer(GL_ARRAY_BUFFER, VelBO);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
+	VAO.Bind();
+	VBOUseAs useVBO(VBO, 0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	VBOUseAs useVelBO(VelBO, 1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glDrawArrays(GL_POINTS, 0, totalPoints);
+}
 
-	glDisableVertexAttribArray(0);
-	glDisableVertexAttribArray(1);
+void QuadPass(const fb_t& pass, float alpha)
+{
+	glUseProgram(QuadPassProgram);
+	glUniform1i(TempTextureUniform, 0);
+	glUniform1f(AlphaUniform, alpha);
+
+	glActiveTexture(GL_TEXTURE0 + 0);
+	glBindTexture(GL_TEXTURE_2D, pass.Texture());
+
+	QuadVAO.Bind();
+	VBOUseAs useQuadVBO(QuadVBO, 0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	VBOUseAs useQuadTexBO(QuadTexBO, 1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
 #ifdef __DEBUG_OCTREE__
@@ -270,13 +323,26 @@ void SecondPass()
 
 void onDraw()
 {
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	spass.Bind();
+	glClear(GL_COLOR_BUFFER_BIT);
+	glViewport(0, 0, 1024, 768);
+	QuadPass(fpass, fadeOut);
+
+	fpass.Bind();
+	glClear(GL_COLOR_BUFFER_BIT);
+	glViewport(0, 0, 1024, 768);
+	QuadPass(spass, 1.0f);
+	FirstPass();
+
+	screen.Bind();
 	glClear(GL_COLOR_BUFFER_BIT);
 	glViewport(0, 0, (GLsizei)ScreenSize.x, (GLsizei)ScreenSize.y);
+	QuadPass(fpass, 1.0f);
+
 #ifdef __DEBUG_OCTREE__
 	SecondPass();
 #endif /* __DEBUG_OCTREE__ */
-	FirstPass();
+
 	glutSwapBuffers();
 }
 
@@ -318,9 +384,29 @@ void onIdle()
 
 	MARK_TIME(start);
 
+#ifndef __BRUTE_FORCE__
 	octree_t<glm::vec3*>* octree = UpdateOctree();
+#endif /* __BRUTE_FORCE__ */
 
+#if defined(__BRUTE_FORCE__) && defined(__USE_CUDA__)
+
+	simStep(gPoints, gVel, totalPoints);
+
+	for (int i = 0; i < totalPoints; ++i)
+	{
+		gPoints[i] += gVel[i];
+		float tMaxVel = glm::length(gVel[i]);
+		if (tMaxVel > maxStarVelocity) {
+			maxStarVelocity = tMaxVel;
+		}
+	}
+
+#else
+#ifndef __BRUTE_FORCE__
 #pragma omp parallel firstprivate(octree)
+#else
+#pragma omp parallel
+#endif
 	{
 #pragma omp for
 		for (int i = 0; i < totalPoints; ++i)
@@ -373,8 +459,12 @@ void onIdle()
 		}
 	}
 
+#ifndef __BRUTE_FORCE__
 	gBarycenter = octree->Root().Barycenter();
 	delete octree;
+#endif /* __BRUTE_FORCE__ */
+
+#endif 
 
 	MARK_TIME(end);
 
@@ -399,12 +489,12 @@ void onIdle()
 
 	ModelView = glm::rotate(ModelView, WorldAngle, glm::vec3(0.0f, 1.0f, 0.0f));
 
-	glBindVertexArray(VAO);
+	VAO.Bind();
 
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	VBO.Bind();
 	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(gPoints), gPoints);
 
-	glBindBuffer(GL_ARRAY_BUFFER, VelBO);
+	VelBO.Bind();
 	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(gVel), gVel);
 
 	glutPostRedisplay();
@@ -414,7 +504,7 @@ void onReshape(int w, int h)
 {
 	glViewport(0, 0, (GLsizei)w, (GLsizei)h);
 
-	Projection = glm::perspective(glm::radians(60.0f), ScreenSize.x / ScreenSize.y, 0.1f, 1000.0f);
+	Projection = glm::perspective(glm::radians(60.0f), ScreenSize.x / ScreenSize.y, nearPlane, farPlane);
 
 	ScreenSize.x = (float)w;
 	ScreenSize.y = (float)h;
@@ -429,11 +519,20 @@ void OnKeyDown(unsigned char key, int x, int y)
 #ifndef __WND_MODE__
 		glutLeaveGameMode();
 #endif
-		glDeleteBuffers(1, &VBO);
-		glDeleteBuffers(1, &VelBO);
-		glDeleteVertexArrays(1, &VAO);
+		VBO.Free();
+		VelBO.Free();
+		VAO.Free();
+		QuadVAO.Free();
 		glDeleteProgram(FirstPassProgram);
 		glutLeaveMainLoop();
+
+#ifdef __BRUTE_FORCE__
+#ifdef __USE_CUDA__
+
+		simCleanup();
+
+#endif /* __USE_CUDA__ */
+#endif /* __BRUTE_FORCE__ */
 		return;
 	case '[':
 		WorldAngle += 0.02f;

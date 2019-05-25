@@ -35,11 +35,13 @@ private:
 	glm::vec3 bcenter;
 	int total;
 
-	constexpr aabb_t ChoosePoint(aabb_t aabb, glm::vec3 sz, glm::ivec3 ch)
+	constexpr aabb_t ChoosePoint(aabb_t aabb, glm::vec3 sz, glm::ivec3 ch) const
 	{
 		return aabb_t{
-		  glm::vec3{ ch.x ? aabb.tl.x : sz.x, ch.y ? aabb.tl.y : sz.y, ch.z ? aabb.tl.z : sz.z },
-		  glm::vec3{ ch.x ? sz.x : aabb.br.x, ch.y ? sz.y : aabb.br.y, ch.z ? sz.z : aabb.br.z }
+			{
+			  glm::vec3{ ch.x ? aabb.tl.x : sz.x, ch.y ? aabb.tl.y : sz.y, ch.z ? aabb.tl.z : sz.z },
+			  glm::vec3{ ch.x ? sz.x : aabb.br.x, ch.y ? sz.y : aabb.br.y, ch.z ? sz.z : aabb.br.z }
+			}
 		};
 	}
 

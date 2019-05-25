@@ -28,19 +28,22 @@ static const char fp_fprog[] =
   "void main(){\n"
   "  vec2 dvec = gl_PointCoord - vec2(0.5,0.5);\n"
   "  float sqdist = max(0.0, 0.25 - dot(dvec, dvec))*4.0;\n"
-  "  color = vec4(sqdist)*vec4(vel*2.0 - 0.2, 0.8);\n"
+  "  color = vec4(sqdist)*vec4(vel*2.0 - 0.2, 0.2);\n"
   "}\n";
 
 static const char sp_vprog[] = 
   "#version 330 core\n"
   "\n"
   "layout(location = 0) in vec3 vertexPosition_modelspace;\n"
+  "layout(location = 1) in vec2 vertexTexCoord;\n"
+  "out vec2 texCoord;\n"
   "\n"
   "uniform mat4 mat_Projection;\n"
   "uniform mat4 mat_ModelView;\n"
   "\n"
   "void main() {\n"
   "  gl_Position = mat_Projection * mat_ModelView * vec4(vertexPosition_modelspace, 1.0);\n"
+  "  texCoord = vertexTexCoord;\n"
   "}\n";
 
 static const char sp_fprog[] = 
@@ -51,6 +54,49 @@ static const char sp_fprog[] =
   "void main(){\n"
   "  color = vec4(0.2);\n"
   "}\n";
+
+static const char quad_vprog[] = 
+  "#version 330 core\n"
+  "\n"
+  "layout(location = 0) in vec3 vertexPosition_modelspace;\n"
+  "layout(location = 1) in vec2 vertexTexCoord;\n"
+  "out vec2 texCoord;\n"
+  "\n"
+  "void main() {\n"
+  "  gl_Position = vec4(vertexPosition_modelspace, 1.0);\n"
+  "  texCoord = vertexTexCoord;\n"
+  "}\n";
+
+
+static const char quad_fprog[] = 
+  "#version 330 core\n"
+  "\n"
+  "layout(location = 0) out vec4 color;\n"
+  "uniform sampler2D star_map;\n"
+  "uniform float alpha;"
+  "in vec2 texCoord;"
+  "\n"
+  "void main(){\n"
+  "  color = texture(star_map, texCoord)*alpha;\n"
+  "}\n";
+
+static glm::vec3 v_quad[6] = {
+  {-1.0f, -1.0f, 0.0f},
+  { 1.0f, -1.0f, 0.0f},
+  { 1.0f,  1.0f, 0.0f},
+  {-1.0f, -1.0f, 0.0f},
+  { 1.0f,  1.0f, 0.0f},
+  {-1.0f,  1.0f, 0.0f}
+};
+
+static glm::vec2 t_quad[6] = {
+  { 0.0f,  0.0f},
+  { 1.0f,  0.0f},
+  { 1.0f,  1.0f},
+  { 0.0f,  0.0f},
+  { 1.0f,  1.0f},
+  { 0.0f,  1.0f}
+};
 
 GLuint LoadShader(GLenum shaderType, const char* shaderText) {
   GLuint result = glCreateShader(shaderType);
