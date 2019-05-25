@@ -1,6 +1,11 @@
+# WARNING
+
+Code has many issues, and almost no comments. It's usage may require some fixes
+to run on different machine.
+
 # nbody
 
-Barnes-Hut N-body simulation algorithm implementation
+Barnes-Hut N-body simulation algorithm implementation.
 
 ## Requirements
 
@@ -45,4 +50,5 @@ presentation:
  drawn.
  * __WND_MODE__ - when defined, simulation runs in windowed mode, otherwise
  in fullscreen 1920x1080.
- 
+ * __USE_CUDA__ - when defined uses CUDA to run simulation using brute-force N^2
+ algorithm
